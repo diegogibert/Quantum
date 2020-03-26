@@ -11,13 +11,15 @@ import numpy as np
 import math
 from qiskit.quantum_info import Pauli
 from qiskit.aqua.operators import WeightedPauliOperator
-from qiskit.aqua import Operator, run_algorithm
+#from qiskit.aqua.operator import Operator
+#from qiskit.aqua import Operator, run_algorithm
 from qiskit.aqua.input import EnergyInput
 from collections import OrderedDict
 from qiskit import BasicAer 
+from qiskit import Aer
 from qiskit.aqua import QuantumInstance
 from qiskit.aqua.algorithms import VQE
-from qiskit.aqua.components.optimizers import COBYLA
+from qiskit.aqua.components.optimizers import COBYLA, SLSQP
 from qiskit.aqua.components.variational_forms import RY
 
 def get_KnapSack_Hb_qubitops(weight_matrix, c):
