@@ -1,0 +1,238 @@
+# implementacion de knapsack de Sorin Bolos
+
+#Bloque 1
+%matplotlib inline
+# Importing standard Qiskit libraries and configuring account
+from qiskit import QuantumCircuit, execute, Aer, IBMQ
+from qiskit.compiler import transpile, assemble
+from qiskit.tools.jupyter import *
+from qiskit.visualization import *
+# Loading your IBM Q account(s)
+provider = IBMQ.load_account()
+
+#Bloque 2
+import matplotlib.pyplot as plt
+import matplotlib.axes as axes
+%matplotlib inline
+import numpy as np
+import networkx as nx
+
+from qiskit import BasicAer
+from qiskit.tools.visualization import plot_histogram
+
+from qiskit.aqua.algorithms import VQE, ExactEigensolver
+from qiskit.aqua.components.optimizers import SPSA, COBYLA
+from qiskit.aqua.components.variational_forms import RY
+from qiskit.aqua import QuantumInstance
+
+from qiskit.quantum_info import Pauli
+from qiskit.aqua.operators import WeightedPauliOperator
+from collections import OrderedDict
+import math
+from qiskit.optimization.applications.ising.common import sample_most_likely
+
+# setup aqua logging
+import logging
+from qiskit.aqua import set_qiskit_aqua_logging
+
+
+
+#Bloque 3
+def get_knapsack_operator(values, weights, max_weight):
+    if len(values) != len(weights):
+        raise ValueError("The values and weights must have the same length")
+
+    if any(v < 0 for v in values) or any(w < 0 for w in weights):
+        raise ValueError("The values and weights cannot be negative")
+
+    if all(v == 0 for v in values):
+        raise ValueError("The values cannot all be 0")
+
+    if max_weight < 0:
+        raise ValueError("max_weight cannot be negative")
+
+    y_size = int(math.log(max_weight, 2)) + 1 if max_weight > 0 else 1
+    print(y_size)
+    n = len(values)
+    num_values = n + y_size
+    pauli_list = []
+    shift = 0
+
+    M = 2000000  #10 * np.sum(values)
+    
+    # term for sum(x_i*w_i)**2
+    for i in range(n):
+        for j in range(n):
+            coefficient = -1 * 0.25 * weights[i] * weights[j] * M
+
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[j] = not zp[j]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[i] = not zp[i]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+            coefficient = -1 * coefficient
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[i] = not zp[i]
+            zp[j] = not zp[j]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+    # term for sum(2**j*y_j)**2
+    for i in range(y_size):
+        for j in range(y_size):
+            coefficient = -1 * 0.25 * (2 ** i) * (2 ** j) * M
+
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[n + j] = not zp[n + j]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[n + i] = not zp[n + i]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+            coefficient = -1 * coefficient
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[n + i] = not zp[n + i]
+            zp[n + j] = not zp[n + j]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+            
+    # term for -2*W_max*sum(x_i*w_i)
+    for i in range(n):
+        coefficient = max_weight * weights[i] * M
+
+        xp = np.zeros(num_values, dtype=np.bool)
+        zp = np.zeros(num_values, dtype=np.bool)
+        zp[i] = not zp[i]
+        pauli_list.append([coefficient, Pauli(zp, xp)])
+        shift -= coefficient
+
+    # term for -2*W_max*sum(2**j*y_j)
+    for j in range(y_size):
+        coefficient = max_weight * (2 ** j) * M
+
+        xp = np.zeros(num_values, dtype=np.bool)
+        zp = np.zeros(num_values, dtype=np.bool)
+        zp[n + j] = not zp[n + j]
+        pauli_list.append([coefficient, Pauli(zp, xp)])
+        shift -= coefficient
+        
+    for i in range(n):
+        for j in range(y_size):
+            coefficient = -1 * 0.5 * weights[i] * (2 ** j) * M
+
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[n + j] = not zp[n + j]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[i] = not zp[i]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+
+            coefficient = -1 * coefficient
+            xp = np.zeros(num_values, dtype=np.bool)
+            zp = np.zeros(num_values, dtype=np.bool)
+            zp[i] = not zp[i]
+            zp[n + j] = not zp[n + j]
+            pauli_list.append([coefficient, Pauli(zp, xp)])
+            shift -= coefficient
+            
+    # term for sum(x_i*v_i)
+    for i in range(n):
+        coefficient = 0.5 * values[i]
+
+        xp = np.zeros(num_values, dtype=np.bool)
+        zp = np.zeros(num_values, dtype=np.bool)
+        zp[i] = not zp[i]
+        pauli_list.append([coefficient, Pauli(zp, xp)])
+        shift -= coefficient
+
+    return WeightedPauliOperator(paulis=pauli_list), shift
+
+
+#Bloque 4
+def get_solution(x, values):
+    return x[:len(values)]
+
+
+def knapsack_value_weight(solution, values, weights):
+    value = np.sum(solution * values)
+    weight = np.sum(solution * weights)
+    return value, weight
+
+
+#Bloque 5
+values = [680, 120, 590, 178]
+weights = [13, 6, 15, 9]
+w_max = 32
+
+qubitOp, offset = get_knapsack_operator(values, weights, w_max)
+
+seed = 10598
+
+cobyla = COBYLA(maxiter=20000)
+spsa = SPSA(max_trials=15000)
+ry = RY(qubitOp.num_qubits, depth=5, entanglement='linear')
+vqe = VQE(qubitOp, ry, spsa)
+
+backend = BasicAer.get_backend('statevector_simulator')
+quantum_instance = QuantumInstance(backend, seed_simulator=seed, seed_transpiler=seed)
+
+result_statevector = vqe.run(quantum_instance)
+
+most_lightly_sv = result_statevector['eigvecs'][0]
+x_statevector = sample_most_likely(most_lightly_sv)
+
+print(x_statevector)
+print('result usig statevector_simulator =' + str(x_statevector[:len(values)]))
+
+
+
+#Bloque 6
+def index_to_selection(i, num_qubits):
+    s = "{0:b}".format(i).rjust(num_qubits)
+    x = np.array([1 if s[i]=='1' else 0 for i in reversed(range(num_qubits))])
+    return x
+
+def print_result(result):
+    #sml = sample_most_likely(result['eigvecs'][0])
+    
+    probabilities = np.abs(result['eigvecs'][0])**2
+    i_sorted = reversed(np.argsort(probabilities))
+    print('\n------------ Full result ----------------')
+    print('selection\t\tprobability')
+    print('-----------------------------------------')
+    for i in i_sorted:
+        x = index_to_selection(i, 7) #la segunda coord son los num de qbits 
+        probability = probabilities[i]
+        print('%10s\t\t%.4f' %(x, probability))
+
+
+#Bloque 7
+print_result(result_statevector)
+
+
+
+#Bloque 8
+ee = ExactEigensolver(qubitOp, k=1)
+result2 = ee.run()
+x = sample_most_likely(result2['eigvecs'][0])
+print('energy:', result2['energy'])
+print('solution:', x[:len(values)])
